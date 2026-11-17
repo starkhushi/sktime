@@ -245,9 +245,13 @@ class Lag(BaseTransformer):
             # need to deal separately with RangeIndex
             # because shift always cuts off the end values
             if isinstance(lag, int) and pd.api.types.is_integer_dtype(X.index):
+                # a lag counts time points, so on an index 0, 2, 4, ... it moves
+                # labels by lag * 2; the step is read from X, which includes the
+                # remembered data, so a single new time point gets the same step
+                step = _integer_index_step(X.index)
                 Xt = X.copy()
-                Xt.index = X.index + lag
-                X_orig_idx_shifted = X_orig_idx + lag
+                Xt.index = X.index + lag * step
+                X_orig_idx_shifted = X_orig_idx + lag * step
             else:
                 if hasattr(X.index, "freq") and X.index.freq is None and freq is None:
                     freq = pd.infer_freq(X.index)
@@ -648,3 +652,25 @@ class ReducerTransform(BaseTransformer):
         params2 = {"lags": [1, 3, 5, 7], "impute_method": "ffill"}
 
         return [params1, params2]
+
+
+def _integer_index_step(index):
+    """Return the spacing of an evenly spaced integer index, else 1.
+
+    Parameters
+    ----------
+    index : pd.Index with integer dtype
+
+    Returns
+    -------
+    int, step of a ``pd.RangeIndex``, or the common difference of consecutive
+    labels if they are all equal; 1 for fewer than two labels or uneven spacing
+    """
+    if isinstance(index, pd.RangeIndex):
+        return index.step
+    if len(index) < 2:
+        return 1
+    steps = np.diff(np.sort(index.to_numpy()))
+    if steps[0] > 0 and (steps == steps[0]).all():
+        return int(steps[0])
+    return 1

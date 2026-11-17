@@ -136,3 +136,51 @@ def test_lag_fit_transform_column_names(X, index_out, lags):
 
     elif isinstance(Xt, pd.Series):
         assert Xt.name is None
+
+
+@pytest.mark.skipif(
+    not run_test_for_class(Lag),
+    reason="Run if tests if module has changed.",
+)
+@pytest.mark.parametrize(
+    "index",
+    [pd.RangeIndex(0, 12, 2), pd.Index([10, 15, 20, 25, 30, 35])],
+)
+@pytest.mark.parametrize("index_out", ["original", "extend", "shift"])
+def test_lag_integer_index_with_step(index, index_out):
+    """Lag on an evenly spaced integer index with step other than 1.
+
+    A lag of 1 must move each value to the next time point, as for a
+    DatetimeIndex with the same spacing, not to the label plus 1.
+    """
+    X = pd.DataFrame({"a": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]}, index=index)
+    step = index[1] - index[0]
+
+    Xt = Lag(lags=[0, 1], index_out=index_out).fit_transform(X)
+
+    lag1 = Xt["lag_1__a"]
+    # every value appears again one time point later, never at label + 1
+    for label, value in zip(index, X["a"]):
+        if label + step in lag1.index:
+            assert lag1.loc[label + step] == value
+    assert not any((label + 1) in lag1.index for label in index if step != 1)
+    if index_out == "original":
+        assert Xt.index.equals(index)
+        np.testing.assert_array_equal(lag1.to_numpy()[1:], X["a"].to_numpy()[:-1])
+        assert np.isnan(lag1.iloc[0])
+
+
+@pytest.mark.skipif(
+    not run_test_for_class(Lag),
+    reason="Run if tests if module has changed.",
+)
+def test_lag_integer_index_with_step_remembers_data():
+    """A single new time point is lagged with the step of the data seen in fit."""
+    index = pd.RangeIndex(0, 12, 2)
+    X = pd.DataFrame({"a": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]}, index=index)
+
+    trafo = Lag(lags=1, index_out="original").fit(X.iloc[:5])
+    Xt = trafo.transform(X.iloc[5:])
+
+    assert list(Xt.index) == [10]
+    assert Xt.iloc[0, 0] == 5.0
